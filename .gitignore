@@ -3,7 +3,6 @@ datasets/*
 !datasets/.gitkeep
 
 # Model weights
-*.pt
 *.pth
 *.onnx
 *.engine
