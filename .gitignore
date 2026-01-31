@@ -1,0 +1,54 @@
+# Datasets - Do not upload to GitHub
+datasets/*
+!datasets/.gitkeep
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+
+# Training runs and outputs
+runs/
+outputs/
+results/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+temp_*/
+
+# Zip files (datasets)
+*.zip
