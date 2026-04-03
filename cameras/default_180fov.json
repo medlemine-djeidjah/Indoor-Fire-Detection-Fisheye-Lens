@@ -1,0 +1,19 @@
+{
+  "_comment": "Approximate equidistant fisheye camera for a 180-degree FOV lens on 640x640 images.",
+  "_note": "k1 = r_max / (fov_rad/2) = 320 / (pi/2) ≈ 203.7. For other resolutions or FOVs run: python scripts/rectconv_adapter.py --gen-json --fov 180 --width 640 --height 640",
+  "intrinsic": {
+    "k1": 203.7,
+    "k2": 0.0,
+    "k3": 0.0,
+    "k4": 0.0,
+    "width": 640,
+    "height": 640,
+    "cx_offset": 0.0,
+    "cy_offset": 0.0,
+    "aspect_ratio": 1.0
+  },
+  "extrinsic": {
+    "quaternion": [0.0, 0.0, 0.0, 1.0],
+    "translation": [0.0, 0.0, 0.0]
+  }
+}
