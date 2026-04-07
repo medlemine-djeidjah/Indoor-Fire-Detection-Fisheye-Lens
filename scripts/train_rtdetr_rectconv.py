@@ -65,10 +65,11 @@ SUMMARY_PATH  = RESULTS_ROOT / "summary.json"
 CACHE_DIR     = PROJECT_ROOT / "cameras" / "cache"
 
 DEFAULT_MODEL  = "rtdetr-l.pt"
-DEFAULT_EPOCHS = 50
-DEFAULT_BATCH  = 8
+DEFAULT_EPOCHS = 200
+DEFAULT_BATCH  = 16
 DEFAULT_IMGSZ  = 640
 DEFAULT_FOV    = 180.0
+DEFAULT_LR0    = 0.0001   # RT-DETR transformer needs a low LR (v1 used 0.01 → unstable)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ def _train_single(
     print(f"  Dataset    : {data_path}")
     print(f"  Camera     : {camera_desc}")
     print(f"  Date       : {today}")
-    print(f"  Epochs     : {args.epochs}  Batch: {args.batch}  ImgSz: {args.imgsz}")
+    print(f"  Epochs     : {args.epochs}  Batch: {args.batch}  ImgSz: {args.imgsz}  lr0: {args.lr0}")
     print(f"  Output     : {run_dir}")
     print(f"{'='*66}\n")
 
@@ -172,22 +173,32 @@ def _train_single(
         project = str(RESULTS_ROOT),
         name    = run_name,
         exist_ok = False,
-        # Fire-specific augmentations
-        hsv_h   = 0.015,
-        hsv_s   = 0.9,
-        hsv_v   = 0.6,
-        degrees = 10.0,
-        flipud  = 0.1,
-        fliplr  = 0.5,
-        mosaic  = 1.0,
-        mixup   = 0.1,
+        # Learning-rate schedule — key improvement over v1
+        lr0          = args.lr0,     # low LR critical for transformer fine-tuning
+        lrf          = 0.01,         # final LR = lr0 * lrf
+        cos_lr       = True,         # cosine annealing: sharpens confidence in final epochs
+        warmup_epochs = 5,           # longer warm-up for transformer stability
+        # Fire-specific augmentations (fisheye has full rotational symmetry)
+        hsv_h        = 0.015,
+        hsv_s        = 0.9,
+        hsv_v        = 0.6,
+        degrees      = 30.0,         # fisheye is rotationally symmetric — use it
+        translate    = 0.2,
+        scale        = 0.7,
+        perspective  = 0.001,        # mild perspective jitter for edge-distortion robustness
+        flipud       = 0.3,          # ceiling/floor fire equally likely in fisheye
+        fliplr       = 0.5,
+        mosaic       = 1.0,
+        mixup        = 0.1,
+        copy_paste   = 0.1,          # paste fire/smoke crops onto new backgrounds
+        close_mosaic = 30,           # disable mosaic in final 30 epochs for fine-tuning
         # Regularisation
-        weight_decay  = 0.0001,
-        warmup_epochs = 3,
-        patience      = 15,
-        save          = True,
-        save_period   = 10,
-        plots         = True,
+        weight_decay   = 0.0005,     # slightly stronger regularisation
+        label_smoothing = 0.05,      # prevents overconfidence on easy examples
+        patience       = 50,         # don't stop early with 200-epoch schedule
+        save           = True,
+        save_period    = 20,
+        plots          = True,
     )
 
     # ── Copy best weights → whights/ ──────────────────────────────────────
@@ -364,6 +375,8 @@ Examples:
                    help=f"Input image size  (default: {DEFAULT_IMGSZ})")
     p.add_argument("--device", default="",
                    help="Device: '0', 'cpu', etc.  (default: auto)")
+    p.add_argument("--lr0", type=float, default=DEFAULT_LR0,
+                   help=f"Initial learning rate  (default: {DEFAULT_LR0} — low is key for RT-DETR)")
 
     cam_group = p.add_argument_group("Camera (choose one)")
     cam_exclusive = cam_group.add_mutually_exclusive_group()

@@ -16,6 +16,23 @@
       "mAP50_95": 0.5555,
       "weights_path": "whights/rtdetr-l-rectconv_v1_2026-04-02.pt",
       "run_dir": "training_results/rtdetr-l-rectconv_v1_2026-04-02"
+    },
+    {
+      "id": "rtdetr-l-rectconv_v2",
+      "architecture": "RTDETR-L-RECTCONV",
+      "version": 2,
+      "trained_date": "2026-04-04",
+      "fisheye": true,
+      "rectconv": true,
+      "camera": "approx-equidistant FOV=180.0\u00b0 640\u00d7640px",
+      "dataset": "/home/medlemine/Downloads/Indoor Fire detection/Indoor-Fire-Detection-Fisheye-Lens/datasets/cylindrical_joint/data.yaml",
+      "dataset_name": "cylindrical_joint",
+      "epochs": 200,
+      "imgsz": 640,
+      "mAP50": 0.9423,
+      "mAP50_95": 0.6084,
+      "weights_path": "whights/rtdetr-l-rectconv_v2_2026-04-04.pt",
+      "run_dir": "training_results/rtdetr-l-rectconv_v2_2026-04-04"
     }
   ]
 }

@@ -855,8 +855,15 @@ if model:
 
             # UI placeholders
             progress_bar  = st.progress(0, text="Initialising…")
-            status_text   = st.empty()
-            preview_slot  = st.empty()
+            col_prev, col_live = st.columns([3, 1])
+            with col_prev:
+                preview_slot = st.empty()
+            with col_live:
+                st.markdown("**Live stats**")
+                live_frame_slot = st.empty()
+                live_det_slot   = st.empty()
+                live_inf_slot   = st.empty()
+                live_alert_slot = st.empty()
 
             # Stats
             total_det_frames = 0
@@ -866,6 +873,7 @@ if model:
 
             frame_idx  = 0
             proc_count = 0
+            loop_t0    = time.time()
 
             while True:
                 ret, frame = cap.read()
@@ -896,10 +904,27 @@ if model:
                         writer.write(annotated)
 
                     proc_count += 1
-                    # Refresh preview every ~10 processed frames
-                    if proc_count % 10 == 0 or frame_idx == 0:
-                        prev_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-                        preview_slot.image(prev_rgb, caption=f"Frame {frame_idx}", use_container_width=True)
+                    # Refresh preview on every processed frame (real-time)
+                    prev_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+                    preview_slot.image(prev_rgb, caption=f"Frame {frame_idx}", use_container_width=True)
+
+                    # Live stats panel
+                    elapsed   = time.time() - loop_t0
+                    live_fps  = proc_count / elapsed if elapsed > 0 else 0
+                    live_frame_slot.metric("Frame", f"{frame_idx} / {total_frames}")
+                    live_det_slot.metric("Detections (total)", total_dets)
+                    live_inf_slot.metric("Inference", f"{inf_ms:.0f} ms  ·  {live_fps:.1f} fps")
+                    if detections:
+                        labels_str = ", ".join(d["label"] for d in detections)
+                        live_alert_slot.markdown(
+                            f'<div class="alert-danger" style="font-size:.8rem">⚠️ {labels_str}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        live_alert_slot.markdown(
+                            '<div class="alert-safe" style="font-size:.8rem">✅ Clear</div>',
+                            unsafe_allow_html=True,
+                        )
 
                 pct = min(frame_idx / max(total_frames - 1, 1), 1.0)
                 progress_bar.progress(pct, text=f"Processing frame {frame_idx}/{total_frames}…")
@@ -911,7 +936,6 @@ if model:
             os.unlink(tmp_in_path)
 
             progress_bar.progress(1.0, text="Done!")
-            status_text.empty()
 
             # ── Summary ──────────────────────────────────────────────────────
             st.markdown("---")
