@@ -1,91 +1,92 @@
-# Indoor Fire & Smoke Detection — Fisheye Lens (RT-DETR + RectConv)
+# Indoor Fire & Smoke Detection -- Fisheye Lens
 
-Real-time fire and smoke detection optimised for fisheye security cameras.
+**RT-DETR-L + RectConv** | Real-time fire and smoke detection optimised for fisheye security cameras
+
+<p align="center">
+  <img src="imgs/fire_smoke_detection.png" width="720" alt="Fire and smoke detection on a fisheye camera frame"/>
+</p>
+
 Two detection classes: **fire** and **smoke**.
-
-The core contribution of this project is the **RectConv integration** (ConvRect): fisheye-geometry-aware convolutions that let a standard perspective-trained detector run natively on fisheye images — no global rectification, no dead zones, no coordinate back-projection step.
+Best model achieves **mAP@50 = 0.923** on the cylindrical joint validation set.
 
 ---
 
 ## Table of Contents
 
-1. [Method](#method)
-   - [Problem: fisheye distortion breaks CNNs](#problem-fisheye-distortion-breaks-cnns)
-   - [Solution: RectConv geometric patch sampling](#solution-rectconv-geometric-patch-sampling)
-   - [Dataset: cylindrical joint preparation](#dataset-cylindrical-joint-preparation)
-   - [Model: RT-DETR-L backbone](#model-rt-detr-l-backbone)
-   - [Full training pipeline](#full-training-pipeline)
-2. [Results](#results)
-   - [Training run summary](#training-run-summary)
-   - [Epoch-by-epoch metrics](#epoch-by-epoch-metrics)
-   - [Visualisation files](#visualisation-files)
-   - [Saved weights](#saved-weights)
-3. [Repository layout](#repository-layout)
-4. [Setup](#setup)
-5. [Usage](#usage)
-   - [Prepare the cylindrical joint dataset](#prepare-the-cylindrical-joint-dataset)
-   - [Train the ConvRect model](#train-the-convrect-model)
-   - [Run the Streamlit GUI](#run-the-streamlit-gui)
-6. [Camera calibration](#camera-calibration)
+- [Why This Project](#why-this-project)
+- [Methodology](#methodology)
+  - [The Problem: Fisheye Distortion Breaks Standard Detectors](#the-problem-fisheye-distortion-breaks-standard-detectors)
+  - [RectConv: Geometry-Aware Convolutions](#rectconv-geometry-aware-convolutions)
+  - [RT-DETR-L: Vision Transformer Detector](#rt-detr-l-vision-transformer-detector)
+  - [Dataset Preparation: Cylindrical Joint Pipeline](#dataset-preparation-cylindrical-joint-pipeline)
+  - [Full Pipeline Overview](#full-pipeline-overview)
+- [Example Detections](#example-detections)
+- [Results](#results)
+- [Quick Start](#quick-start)
+  - [Installation](#installation)
+  - [Prepare the Dataset](#prepare-the-dataset)
+  - [Fine-Tune the Model](#fine-tune-the-model)
+  - [Run the Streamlit GUI](#run-the-streamlit-gui)
+- [Repository Layout](#repository-layout)
+- [Camera Calibration](#camera-calibration)
+- [Citation](#citation)
 
 ---
 
-## Method
+## Why This Project
 
-### Problem: fisheye distortion breaks CNNs
+Fisheye security cameras provide 180-degree coverage of indoor spaces -- ideal for fire safety monitoring. But their extreme radial distortion breaks standard object detectors: flames and smoke near the image edges appear warped, stretched, and scaled differently than at the centre.
 
-Standard convolutional neural networks assume **translation invariance**: the same feature (an edge, a flame texture) should activate the same filter regardless of where it appears in the image.  This assumption holds for pinhole (perspective) cameras.
+This project solves that problem by combining:
+1. **RectConv** -- convolutions that correct for fisheye distortion at the kernel level
+2. **RT-DETR-L** -- a state-of-the-art vision transformer detector that naturally handles the non-uniform spatial features produced by RectConv
 
-A fisheye lens introduces strong radial distortion — the further a point is from the image centre, the more it is compressed and rotated relative to a perspective view.  Consequences for a fire detector:
+The result: a detector that runs directly on raw fisheye frames with no global rectification, no dead zones, and no coordinate back-projection.
 
-- A flame in the image centre looks sharp and upright; the same flame near the edge appears warped and scaled differently.
-- Standard convolution kernels sampled on a regular grid around each off-centre position see geometrically inconsistent neighbourhoods — the "patch" they see is distorted relative to the patch they were trained on.
-- Accuracy degrades at the periphery — exactly where fisheye cameras are most useful (wide coverage, room corners).
+---
 
-Traditional solutions (global rectification, cylindrical unwrapping) fix the geometry but sacrifice field of view or introduce large black "dead zone" borders.
+## Methodology
 
-### Solution: RectConv geometric patch sampling
+### The Problem: Fisheye Distortion Breaks Standard Detectors
 
-**RectConv** (Robotic Imaging lab, *"Adapting CNNs for Fisheye Cameras without Retraining"*, arXiv:2404.08187) solves this at the convolution level:
+Standard CNNs assume **translation invariance**: the same feature (an edge, a flame texture) should activate the same filter no matter where it appears. This holds for pinhole cameras but fails for fisheye lenses.
+
+A 180-degree fisheye lens compresses and rotates objects progressively toward the edges. A flame at the image centre looks sharp and upright; the same flame near the periphery is warped beyond recognition for a standard convolution kernel. Traditional fixes (global rectification, cylindrical unwrapping) sacrifice field of view or introduce large dead zones.
+
+### RectConv: Geometry-Aware Convolutions
+
+**RectConv** ([arXiv:2404.08187](https://arxiv.org/abs/2404.08187)) solves this at the convolution level by modifying how each kernel samples its neighbourhood:
 
 ```
 Standard Conv2d:
-  For each output position p, sample a regular K×K grid around p in the input.
+  For each output position p, sample a regular K x K grid around p.
 
 RectifyConv2d:
-  For each output position p, compute the locally perspective-corrected K×K
-  sampling grid using the camera's radial distortion model, then sample
-  those (non-integer) input locations via bilinear interpolation.
+  For each output position p, compute the locally perspective-corrected
+  K x K sampling grid using the camera's radial distortion model,
+  then bilinearly interpolate at those (non-integer) locations.
 ```
 
-Every convolution kernel sees a **locally rectified patch** — a small neighbourhood that looks like a perspective view regardless of where it sits in the fisheye frame.
+Every convolution kernel sees a **locally rectified patch** -- a small neighbourhood that looks like a perspective view regardless of where it sits in the fisheye frame.
 
-| Property | Value |
+| Property | Benefit |
 |---|---|
-| Full fisheye FOV preserved | No dead zones, no cropping |
-| Model weights unchanged | A COCO-pretrained RT-DETR-L works out of the box |
-| Detections in fisheye coordinates | No post-processing back-projection required |
+| Full 180-degree FOV preserved | No dead zones, no cropping |
+| Model weights unchanged | COCO-pretrained weights work out of the box |
+| Detections in native fisheye coordinates | No post-processing back-projection needed |
 | Offset map computed once per camera | Negligible runtime overhead per frame |
 
-#### Camera model
-
-The distortion offset map is derived from the **Kannala-Brandt radial polynomial**:
+The distortion offset map uses the **Kannala-Brandt equidistant model**:
 
 ```
-r = k1·θ + k2·θ² + k3·θ³ + k4·θ⁴
+r = k1 * theta      (k1 = r_max / (FOV_rad / 2))
 ```
 
-For most wide-angle IP security cameras the equidistant simplification applies:
+It is computed once from the camera's FOV (or a calibration JSON) and cached to `cameras/cache/`.
 
-```
-r = k1·θ    (k2 = k3 = k4 = 0,   k1 = r_max / (FOV_rad / 2))
-```
+#### How Model Patching Works
 
-The distortion map is cached to `cameras/cache/distmap_<hash>.pt` after the first computation so subsequent runs load it instantly.
-
-#### Model patching
-
-After loading RT-DETR-L, every `nn.Conv2d` with kernel size > 1 is replaced in-place with a `RectifyConv2d` that carries the precomputed offset map.  The replacement is done by `scripts/rectconv_adapter.py`:
+After loading RT-DETR-L, every `nn.Conv2d` with kernel size > 1 is replaced in-place with a `RectifyConv2d` carrying the precomputed offset map:
 
 ```python
 from scripts.rectconv_adapter import make_camera_from_fov, build_distortion_map, patch_model
@@ -95,329 +96,177 @@ distmap = build_distortion_map(cam, cache_path="cameras/cache")
 patch_model(model.model, distmap)   # modifies the nn.Module in-place
 ```
 
-All Conv2d layers in the backbone, neck, and detection head are patched in a single pass before training begins.
+### RT-DETR-L: Vision Transformer Detector
 
-### Dataset: cylindrical joint preparation
+We use **RT-DETR-L** (Real-Time Detection Transformer, Large variant) as the base detector. RT-DETR is a hybrid CNN-Transformer architecture:
 
-To maximise training data diversity we built a joint dataset from three sources:
+- **ResNet-50 backbone** extracts multi-scale features
+- **Hybrid encoder** combines CNN efficiency with Transformer self-attention
+- **DETR-style decoder** with learnable object queries and bipartite matching loss
+- Pre-trained on **COCO 2017** (80 classes, perspective images)
+- Input resolution: **640 x 640**
 
-| Source | Type | Original size | Processing |
-|---|---|---|---|
-| DS1 — fisheye fire | fisheye 1024 × 1024, 180° FOV | fire labels | warped to cylindrical 640 × 640 |
-| DS3 — fisheye fire/smoke | fisheye 1280 × 960, 180° FOV | fire + smoke labels | warped to cylindrical 640 × 640 |
-| DS2 — Indoor Fire Smoke | perspective 640 × 640 | fire + smoke labels | copied as-is |
+**Why RT-DETR over YOLO for fisheye?**
 
-**Cylindrical projection** (`scripts/train_cylindrical_joint.py`) is applied to the fisheye sources before merging:
+| Advantage | Explanation |
+|---|---|
+| Self-attention | Naturally adapts to the spatially non-uniform features produced by RectConv -- attention weights learn where to focus regardless of geometric irregularities |
+| No anchor tuning | DETR-style bipartite matching is agnostic to object size/aspect-ratio distributions, which vary wildly across the fisheye frame |
+| End-to-end | No NMS post-processing, which can struggle with the unusual bounding box overlaps fisheye geometry produces |
 
-1. Estimate equidistant calibration from image dimensions (`f = r_max / (FOV_rad/2)`).
-2. Build `cv2.remap()` backward lookup tables for every output pixel at 640 × 640.
-3. Warp each image with bilinear interpolation.
-4. Transform each YOLO bounding box by projecting **8 sample points** (4 corners + 4 edge midpoints) through the inverse cylindrical-to-fisheye mapping and enclosing them in a new axis-aligned box.
-5. Drop any box where fewer than 2 of the 8 sample points remain within the valid fisheye circle.
+### Dataset Preparation: Cylindrical Joint Pipeline
 
-All images land in a single staging pool, shuffled with a fixed seed (42), and split **85 % train / 15 % val**.
+We built a joint dataset from three sources to maximise diversity:
 
-Output: `datasets/cylindrical_joint/` — standard YOLO directory layout with `data.yaml`.
+| Source | Type | Processing |
+|---|---|---|
+| DS1 -- Fisheye Fire 1024 | fisheye 1024x1024, 180-degree FOV | Cylindrical warp to 640x640 |
+| DS3 -- Fisheye Fire/Smoke 1280 | fisheye 1280x960, 180-degree FOV | Cylindrical warp to 640x640 |
+| DS2 -- Indoor Fire Smoke | perspective 640x640 | Copied as-is |
 
-### Model: RT-DETR-L backbone
+The cylindrical projection pipeline (`scripts/train_cylindrical_joint.py`):
 
-We use **RT-DETR-L** (Real-Time Detection Transformer, Large variant) loaded via Ultralytics:
+1. Estimates equidistant calibration from image dimensions
+2. Builds `cv2.remap()` backward lookup tables for 640x640 output
+3. Warps each image with bilinear interpolation
+4. Transforms YOLO bounding boxes via **8-point sampling** (4 corners + 4 edge midpoints)
+5. Drops boxes where fewer than 2 of 8 points remain within the valid fisheye circle
 
-- Transformer-based detector (DETR-style) with a ResNet-50 backbone and a hybrid CNN-Transformer encoder.
-- Pre-trained on COCO 2017 (perspective images).
-- Fine-tuned end-to-end on the cylindrical joint dataset *after* RectConv patching.
-- Input resolution: **640 × 640**.
-- Base weights: `rtdetr-l.pt` (64 MB, auto-downloaded by Ultralytics if absent).
+All images are shuffled (seed=42) and split **85% train / 15% val**.
 
-RT-DETR was chosen over YOLO because:
-- Its attention mechanism naturally adapts to the spatially non-uniform feature distributions produced by RectConv.
-- The bipartite matching loss is agnostic to the spatial arrangement of objects, which is important when fisheye geometry causes unusual size and aspect-ratio distributions near the image periphery.
-- No anchor hyperparameters to re-tune for a new domain.
-
-### Full training pipeline
+### Full Pipeline Overview
 
 ```
 Raw fisheye images (DS1, DS3)
-    │
-    ▼ fisheye → cylindrical projection  (train_cylindrical_joint.py)
-    │   equidistant remap, 8-point bbox transform, 85/15 split
-    ▼
-datasets/cylindrical_joint/   ◄── DS2 perspective images merged in
-    │
-    ▼ build RectConv offset map         (rectconv_adapter.py)
-    │   equidistant camera, 640×640, cached to cameras/cache/
-    ▼
-RT-DETR-L loaded  (rtdetr-l.pt)
-    │
-    ▼ patch all Conv2d → RectifyConv2d  (rectconv_adapter.patch_model)
-    │   weights unchanged, sampling grid corrected for fisheye geometry
-    ▼
-Fine-tune on cylindrical_joint          (train_rtdetr_rectconv.py)
-    │   epochs=20, batch=4, imgsz=640
-    │   HSV jitter (h=0.015, s=0.9, v=0.6), mosaic=1.0, mixup=0.1
-    │   rotation ±10°, fliplr=0.5, flipud=0.1
-    │   warmup 3 epochs, cosine LR decay, early stopping patience=15
-    ▼
-whights/rtdetr-l-rectconv_v1_2026-04-02.pt   ← best checkpoint
+    |
+    v  fisheye -> cylindrical projection  (train_cylindrical_joint.py)
+    |    equidistant remap, 8-point bbox transform, 85/15 split
+    v
+datasets/cylindrical_joint/   <-- DS2 perspective images merged in
+    |
+    v  Build RectConv offset map           (rectconv_adapter.py)
+    |    equidistant camera model, 640x640, cached to cameras/cache/
+    v
+RT-DETR-L loaded  (rtdetr-l.pt, COCO pretrained)
+    |
+    v  Patch all Conv2d -> RectifyConv2d   (rectconv_adapter.patch_model)
+    |    weights preserved, sampling grids corrected for fisheye geometry
+    v
+Fine-tune on cylindrical_joint             (train_rtdetr_rectconv.py)
+    |    epochs=20, batch=4, imgsz=640
+    |    HSV jitter, mosaic, mixup, rotation, flips
+    |    warmup 3 epochs, cosine LR decay, early stopping patience=15
+    v
+whights/rtdetr-l-rectconv_v1_2026-04-02.pt   <- best checkpoint (mAP@50: 0.923)
 ```
+
+---
+
+## Example Detections
+
+All examples are from real fisheye security camera frames processed by the trained RT-DETR-L + RectConv model via the Streamlit GUI.
+
+### Fire Detection -- Image Centre
+
+<p align="center">
+  <img src="imgs/fire_detection_center.png" width="600" alt="Fire detected at image centre with confidence 0.84"/>
+</p>
+
+Fire detected at the image centre with **84% confidence**. The fisheye distortion is minimal here, and the model produces a tight bounding box around the flame.
+
+### Fire Detection -- Image Periphery
+
+<p align="center">
+  <img src="imgs/fire_detection_edge.png" width="600" alt="Fire detected at image edge with confidence 0.71"/>
+</p>
+
+Fire detected near the image edge with **71% confidence**. Despite significant fisheye distortion at the periphery, RectConv's geometry-corrected sampling allows the detector to correctly identify the small flame. This is the scenario where standard detectors typically fail.
+
+### Fire + Smoke Detection
+
+<p align="center">
+  <img src="imgs/fire_smoke_detection.png" width="600" alt="Both fire and smoke detected simultaneously"/>
+</p>
+
+Both classes detected simultaneously: **fire at 83%** and **smoke at 80%** confidence. The model correctly distinguishes the two classes and localises them with separate bounding boxes even under fisheye distortion.
 
 ---
 
 ## Results
 
-### Training run summary
+**Run:** `rtdetr-l-rectconv_v1_2026-04-02` | 20 epochs | batch 4 | 640x640
 
-**Run ID:** `rtdetr-l-rectconv_v1_2026-04-02`
-
-| Parameter | Value |
-|---|---|
-| Base model | RT-DETR-L (COCO pretrained) |
-| Dataset | cylindrical_joint |
-| Epochs completed | 20 |
-| Batch size | 4 |
-| Image size | 640 × 640 |
-| Optimizer | AdamW (auto), weight decay 1e-4 |
-| Warmup | 3 epochs |
-| LR schedule | cosine decay, lr0=0.01 → lrf=0.01 |
-| Early stopping patience | 15 |
-
-**Best checkpoint metrics (mAP@50 peak at epoch 16):**
-
-| Metric | Value |
+| Metric | Best Value |
 |---|---|
 | **mAP@50** | **0.923** |
 | **mAP@50-95** | **0.556** |
 | Precision | 0.896 |
 | Recall | 0.881 |
-| Val GIoU loss | 0.432 |
-| Val Class loss | 0.450 |
 
-### Epoch-by-epoch metrics
+<details>
+<summary>Epoch-by-epoch metrics</summary>
 
-| Epoch | mAP@50 | mAP@50-95 | Precision | Recall | Train GIoU | Train Cls |
-|---|---|---|---|---|---|---|
-| 1 | 0.458 | 0.215 | 0.593 | 0.461 | 1.030 | 2.110 |
-| 2 | 0.698 | 0.334 | 0.756 | 0.636 | 0.689 | 0.768 |
-| 3 | 0.755 | 0.378 | 0.776 | 0.694 | 0.611 | 0.715 |
-| 4 | 0.801 | 0.402 | 0.812 | 0.737 | 0.582 | 0.692 |
-| 5 | 0.818 | 0.399 | 0.826 | 0.758 | 0.558 | 0.670 |
-| 6 | 0.833 | 0.416 | 0.844 | 0.768 | 0.549 | 0.645 |
-| 7 | 0.848 | 0.443 | 0.835 | 0.799 | 0.534 | 0.627 |
-| 8 | 0.853 | 0.437 | 0.838 | 0.804 | 0.527 | 0.619 |
-| 9 | 0.873 | 0.456 | 0.854 | 0.822 | 0.512 | 0.617 |
-| 10 | 0.871 | 0.451 | 0.869 | 0.807 | 0.502 | 0.603 |
-| 11 | 0.900 | 0.500 | 0.890 | 0.829 | 0.443 | 0.515 |
-| 12 | 0.890 | 0.503 | 0.878 | 0.845 | 0.435 | 0.489 |
-| 13 | 0.908 | 0.509 | 0.893 | 0.852 | 0.424 | 0.480 |
-| 14 | 0.908 | 0.523 | 0.885 | 0.867 | 0.412 | 0.472 |
-| 15 | 0.911 | 0.522 | 0.894 | 0.866 | 0.408 | 0.460 |
-| **16** | **0.923** | 0.546 | **0.911** | 0.863 | 0.400 | 0.453 |
-| 17 | 0.918 | 0.555 | 0.899 | 0.865 | 0.396 | 0.443 |
-| 18 | 0.922 | **0.556** | 0.900 | 0.875 | 0.388 | 0.439 |
-| 19 | 0.918 | 0.553 | 0.900 | 0.875 | 0.382 | 0.438 |
-| 20 | 0.921 | 0.553 | 0.896 | **0.881** | 0.379 | 0.432 |
+| Epoch | mAP@50 | mAP@50-95 | Precision | Recall |
+|---|---|---|---|---|
+| 1 | 0.458 | 0.215 | 0.593 | 0.461 |
+| 2 | 0.698 | 0.334 | 0.756 | 0.636 |
+| 3 | 0.755 | 0.378 | 0.776 | 0.694 |
+| 4 | 0.801 | 0.402 | 0.812 | 0.737 |
+| 5 | 0.818 | 0.399 | 0.826 | 0.758 |
+| 6 | 0.833 | 0.416 | 0.844 | 0.768 |
+| 7 | 0.848 | 0.443 | 0.835 | 0.799 |
+| 8 | 0.853 | 0.437 | 0.838 | 0.804 |
+| 9 | 0.873 | 0.456 | 0.854 | 0.822 |
+| 10 | 0.871 | 0.451 | 0.869 | 0.807 |
+| 11 | 0.900 | 0.500 | 0.890 | 0.829 |
+| 12 | 0.890 | 0.503 | 0.878 | 0.845 |
+| 13 | 0.908 | 0.509 | 0.893 | 0.852 |
+| 14 | 0.908 | 0.523 | 0.885 | 0.867 |
+| 15 | 0.911 | 0.522 | 0.894 | 0.866 |
+| **16** | **0.923** | 0.546 | **0.911** | 0.863 |
+| 17 | 0.918 | 0.555 | 0.899 | 0.865 |
+| 18 | 0.922 | **0.556** | 0.900 | 0.875 |
+| 19 | 0.918 | 0.553 | 0.900 | 0.875 |
+| 20 | 0.921 | 0.553 | 0.896 | **0.881** |
 
-Notable observations:
-- **Epoch 1 → 4**: rapid learning — mAP@50 jumps from 0.46 to 0.80 in 4 epochs, showing effective transfer from the COCO-pretrained backbone.
-- **Epoch 10 → 11**: sharp discontinuity (+0.029 mAP@50, +0.049 mAP@50-95) coincides with `close_mosaic=10` — the model consolidates once mosaic augmentation is disabled.
-- **Epoch 16+**: mAP@50 plateaus ≥ 0.92 while mAP@50-95 continues climbing, indicating the model is refining localisation precision beyond the coarse IoU=0.5 threshold.
-- Training and validation losses track closely throughout, with no sign of over-fitting over 20 epochs.
+</details>
 
-### Visualisation files
-
-All plots are in `training_results/rtdetr-l-rectconv_v1_2026-04-02/`:
-
-| File | Contents |
-|---|---|
-| `results.png` | Combined training/val loss and metric curves |
-| `BoxF1_curve.png` | F1 score vs confidence threshold |
-| `BoxP_curve.png` | Precision vs confidence |
-| `BoxR_curve.png` | Recall vs confidence |
-| `BoxPR_curve.png` | Precision-Recall curve |
-| `confusion_matrix.png` | Raw confusion matrix (fire / smoke / background) |
-| `confusion_matrix_normalized.png` | Normalised confusion matrix |
-| `labels.jpg` | Distribution of bounding box sizes and positions |
-| `train_batch*.jpg` | Sample training batches with ground-truth labels |
-| `val_batch*_labels.jpg` | Validation ground truth |
-| `val_batch*_pred.jpg` | Validation predictions |
-
-### Saved weights
-
-| File | Description |
-|---|---|
-| `whights/rtdetr-l-rectconv_v1_2026-04-02.pt` | Best validation checkpoint (primary model) |
-| `training_results/.../weights/best.pt` | Same, inside the run directory |
-| `training_results/.../weights/last.pt` | Final epoch weights |
-| `training_results/.../weights/epoch0.pt` | Epoch 0 snapshot |
-| `training_results/.../weights/epoch10.pt` | Epoch 10 snapshot |
+Key observations:
+- **Epoch 1-4**: Rapid transfer learning -- mAP@50 jumps from 0.46 to 0.80 in 4 epochs
+- **Epoch 10-11**: Sharp improvement (+0.029 mAP@50) when mosaic augmentation disables (`close_mosaic=10`)
+- **Epoch 16+**: mAP@50 plateaus at 0.92+ while mAP@50-95 continues climbing (better localisation precision)
+- No sign of overfitting across 20 epochs
 
 ---
 
-## Repository layout
+## Quick Start
 
-```
-.
-├── cameras/
-│   ├── default_180fov.json          # Equidistant 180° FOV camera (640×640)
-│   └── cache/                       # Cached RectConv offset maps (.pt)
-│
-├── datasets/
-│   └── cylindrical_joint/           # Prepared training dataset (gitignored)
-│       ├── data.yaml
-│       ├── train/images/ & labels/
-│       └── val/images/   & labels/
-│
-├── gui/
-│   └── app.py                      # Streamlit web application
-├── .gitignore
-└── README.md
-```
+### Installation
 
----
-
-## Requirements
-
-- Python 3.8+
-- CUDA-capable GPU (recommended for training)
-
----
-
-## Installation
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/medlemine-djeidjah/Indoor-Fire-Detection-Fisheye-Lens
-   cd Indoor-Fire-Detection-Fisheye-Lens
-   ```
-
-2. **Create virtual environment (recommended):**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   # or
-   venv\Scripts\activate     # Windows
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install ultralytics opencv-python torch torchvision streamlit pillow numpy
-   ```
-
----
-
-## Datasets
-
-### Available Datasets
-
-| Dataset | Description | Classes | Use Case |
-|---------|-------------|---------|----------|
-| **YOLOV12-DATASET** | Large fire/smoke dataset for YOLOv12 training | smoke, fire | Primary training |
-| **Indoor-Fire-Smoke** | Indoor fire and smoke images | fire, smoke | Indoor-specific training |
-| **Indoor-Outdoor-Dataset** | Mixed indoor/outdoor fire scenes | fire, smoke | Diverse training |
-| **Fisheye-Lens-Images** | Fisheye distorted images | - | Fisheye augmentation |
-| **Building-Out** | Building fire scenarios | fire, smoke | Building-specific training |
-
-### Download Links
-
-| Dataset | Link |
-|---------|------|
-| YOLOV12-DATASET | [Download](https://storage.googleapis.com/kaggle-data-sets/6556263/10592956/bundle/archive.zip?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20260126%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260126T082828Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=56ba11358946f2ac46fdba58e9e9a5f05b59c50aaa29e2f839edd3b8a1376e4155cfcbcf1e91ebb4c5a39bf8b94cac8eef13e383a29c0a9ac91c72ecdd2bef641a8d522ae7293cdf742a947e6f3200fe7609930cedb277d8c2d6ae1c776d70f2649c088e3c66679ed2db67cfdd7f85d6580bb8f5382d6ed1a649b85092b8bb76ffb4de2fe1c88f27fd5b37ba677c1d6ba2789e7db4e34c7535a7dabcbee34ea4678ad8f43a2121b4e560c5eaecc7c63687f4bcfea44211a5cb049100d8156ec15e529e1c77c2967f52765f909813cb6146017e0c07fc7b0e8973ae3d2d8d1108e2fef069530f515c96f4cb46d635d752ccf999540cd17566fd2b480b9ec7f4a2) |
-| Indoor-Fire-Smoke | [Download](https://zenodo.org/records/15826133/files/Indoor%20Fire%20Smoke.zip?download=1) |
-| Indoor-Outdoor-Dataset | [Download](https://storage.googleapis.com/kaggle-data-sets/3652173/6343158/bundle/archive.zip?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20260121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260121T185642Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=4492d0e7348969d532f495ee398adf07cd86f392d8b379e60577eb301ea763ce021345cf7dfb50e037ca4b74e01634b8fb5fb815ca7f1c54b5de405bd43e516841fbf0234c518df2f0fbd2b23482c463bd4f5bf1be0a867bd86fe73923790665e71351239b39ff952e550e8d073d1b5d40c3f23f5d98be0ed1872fd0d2eaa4eb42296366fff6c075fda71bd605ed5a78e07c2a13d57c04ee603bee52a1d73d7d8b6a9e3c95e6a181e5962e5b790ff463db16c0a1d3215c5b2625337436cfb001e126d0879c2511631b5ad578329af59c6d7953a33570127b1a90accddd12b33e466b237f1f4c2d81fa1d9c41a00f011140f7bee78306d27927000506d1be0f47) |
-| Fisheye-Lens-Images | [Download](https://drive.google.com/file/d/1yq2YrJCD3dhzghrJEZbnMklXvqwiUwil/view?usp=sharing) |
-| Building-Out | [Download](https://zenodo.org/records/15187630/files/Building_Out.zip?download=1) |
-
-### Dataset Placement
-
-All datasets must be placed in the `datasets/` directory. This directory is gitignored to prevent uploading large files to GitHub.
-
-**Steps:**
-1. Download the dataset ZIP file
-2. Extract it to the `datasets/` folder
-3. Rename the folder if necessary to match the expected name (no spaces)
-
-**Example:**
 ```bash
-# After downloading Indoor Fire Smoke.zip
-unzip "Indoor Fire Smoke.zip" -d datasets/
-mv "datasets/Indoor Fire Smoke" datasets/Indoor-Fire-Smoke
+git clone https://github.com/medlemine-djeidjah/Indoor-Fire-Detection-Fisheye-Lens
+cd Indoor-Fire-Detection-Fisheye-Lens
 ```
 
-### Expected Directory Structure
-
-After placing datasets, your `datasets/` folder should look like this:
-
+```bash
+python -m venv venv
+source venv/bin/activate      # Linux/Mac
+# venv\Scripts\activate       # Windows
 ```
-datasets/
-├── Indoor-Fire-Smoke/
-│   ├── data.yaml              # Dataset configuration file
-│   ├── train/
-│   │   ├── images/            # Training images (.jpg, .png)
-│   │   └── labels/            # YOLO format labels (.txt)
-│   ├── valid/
-│   │   ├── images/
-│   │   └── labels/
-│   └── test/
-│       ├── images/
-│       └── labels/
-│
-├── scripts/
-│   ├── train_rtdetr_rectconv.py     # Main ConvRect training script
-│   ├── rectconv_adapter.py          # RectConv ↔ Ultralytics bridge
-│   ├── train_cylindrical_joint.py   # Dataset preparation (cylindrical warp)
-│   ├── fisheye_rectifier.py         # Calibration-free fisheye rectifier
-│   └── merge_dataset.py             # Utility: merge external datasets
-│
-├── third_party/
-│   └── RectConv/                    # RectConv library (RoboticImaging/RectConv)
-│
-├── training_results/
-│   └── rtdetr-l-rectconv_v1_2026-04-02/
-│       ├── args.yaml                # Full training configuration
-│       ├── results.csv              # Epoch-by-epoch metrics
-│       ├── results.png              # Training curve plot
-│       ├── confusion_matrix*.png
-│       ├── Box*_curve.png
-│       ├── train_batch*.jpg
-│       ├── val_batch*_{labels,pred}.jpg
-│       └── weights/                 # best.pt, last.pt, epoch snapshots
-│
-├── whights/
-│   ├── registry.json                # Model registry (id, date, metrics)
-│   └── rtdetr-l-rectconv_v1_2026-04-02.pt   # Best trained weights
-│
-├── rtdetr-l.pt                      # Base RT-DETR-L weights (COCO pretrained)
-└── .streamlit/config.toml           # Fire-orange UI theme
-```
-
----
-
-## Setup
-
-### Install dependencies
 
 ```bash
 pip install ultralytics opencv-python torch torchvision streamlit pillow numpy scipy
 ```
 
-### RectConv library
-
-The `third_party/RectConv/` directory is included in this repository.
-If it is missing for any reason, clone it:
+The `third_party/RectConv/` directory is included. If missing:
 
 ```bash
 git clone https://github.com/RoboticImaging/RectConv.git third_party/RectConv
 ```
 
-`rectconv_adapter.py` adds the necessary paths to `sys.path` automatically — no build step needed.
+### Prepare the Dataset
 
----
-
-## Usage
-
-### Prepare the cylindrical joint dataset
-
-Run once to build `datasets/cylindrical_joint/` from your raw data sources:
+Build the cylindrical joint dataset from your raw fisheye and perspective sources:
 
 ```bash
 python scripts/train_cylindrical_joint.py \
@@ -429,11 +278,11 @@ python scripts/train_cylindrical_joint.py \
     --prepare-only
 ```
 
-If the dataset is already present (`--skip-prepare`), this step is not needed.
+This warps fisheye images to cylindrical 640x640, transforms bounding boxes, merges with perspective data, and creates an 85/15 train/val split.
 
-### Train the ConvRect model
+### Fine-Tune the Model
 
-#### Approximate camera from FOV (no calibration required)
+#### Basic: estimate camera from FOV (no calibration needed)
 
 ```bash
 python scripts/train_rtdetr_rectconv.py \
@@ -442,7 +291,14 @@ python scripts/train_rtdetr_rectconv.py \
     --epochs 50 --batch 8
 ```
 
-#### With a calibrated camera JSON
+This will:
+1. Load RT-DETR-L with COCO-pretrained weights (`rtdetr-l.pt`, auto-downloaded)
+2. Compute the RectConv distortion offset map for a 180-degree equidistant lens
+3. Patch all `Conv2d` layers to `RectifyConv2d`
+4. Fine-tune on your dataset with augmentations (mosaic, mixup, HSV jitter, flips)
+5. Save the best weights to `whights/rtdetr-l-rectconv_v{N}_{date}.pt`
+
+#### Advanced: with a calibrated camera JSON
 
 ```bash
 python scripts/train_rtdetr_rectconv.py \
@@ -451,7 +307,7 @@ python scripts/train_rtdetr_rectconv.py \
     --epochs 50 --batch 8 --device 0
 ```
 
-#### Multiple datasets in one session
+#### Multiple datasets
 
 ```bash
 python scripts/train_rtdetr_rectconv.py \
@@ -459,7 +315,7 @@ python scripts/train_rtdetr_rectconv.py \
     --fov 180 --epochs 50 --device 0
 ```
 
-Best weights are saved to `whights/rtdetr-l-rectconv_v{N}_{date}.pt` and registered in `whights/registry.json`.
+Training outputs (curves, confusion matrices, weight snapshots) are saved to `training_results/`.
 
 ### Run the Streamlit GUI
 
@@ -469,22 +325,89 @@ streamlit run gui/app.py
 
 Open `http://localhost:8501` in your browser.
 
-| Tab | Description |
+| Tab | What it does |
 |---|---|
-| Model Upload | Load any `.pt`, `.onnx`, or `.engine` weights file |
-| Image Analysis | Upload a fisheye image and run inference |
-| Live Camera | Connect to an IP camera or webcam stream |
+| **Model Upload** | Load any `.pt`, `.onnx`, or `.engine` weights file |
+| **Image Analysis** | Upload a fisheye image, run inference, see detections with bounding boxes |
+| **Live Camera** | Connect to an IP camera or webcam for real-time detection |
 
-Default confidence threshold: 0.45.  Default IOU threshold: 0.70.
+Adjustable confidence threshold (default 0.45) and IOU threshold (default 0.70) via the sidebar.
 
 ---
 
-## Camera calibration
+## Repository Layout
 
-The equidistant approximation works well for most wide-angle IP security cameras.
-For maximum accuracy, calibrate your lens and provide a JSON file.
+```
+.
+├── cameras/
+│   ├── default_180fov.json           # Equidistant 180-degree camera config
+│   └── cache/                        # Cached RectConv offset maps (.pt)
+│
+├── datasets/
+│   └── cylindrical_joint/            # Prepared training dataset (gitignored)
+│       ├── data.yaml                 # nc: 2, names: ['fire', 'smoke']
+│       ├── train/images/ & labels/
+│       └── val/images/   & labels/
+│
+├── gui/
+│   └── app.py                        # Streamlit web application
+│
+├── imgs/                             # Example detection screenshots
+│
+├── scripts/
+│   ├── train_rtdetr_rectconv.py      # Main training script (RT-DETR-L + RectConv)
+│   ├── rectconv_adapter.py           # RectConv <-> Ultralytics bridge
+│   ├── train_cylindrical_joint.py    # Dataset preparation (cylindrical warp)
+│   ├── fisheye_rectifier.py          # Calibration-free fisheye rectifier
+│   └── merge_dataset.py             # Utility: merge external datasets
+│
+├── third_party/
+│   └── RectConv/                     # RectConv library (RoboticImaging/RectConv)
+│
+├── training_results/                 # Training run outputs (curves, weights, plots)
+│
+├── whights/
+│   ├── registry.json                 # Model registry (id, date, metrics)
+│   └── rtdetr-l-rectconv_v1_*.pt     # Best trained weights
+│
+├── rtdetr-l.pt                       # Base RT-DETR-L (COCO pretrained, 64 MB)
+└── .streamlit/config.toml            # Fire-orange UI theme
+```
 
-Generate a starting template from FOV:
+---
+
+## Datasets
+
+### Available Datasets
+
+| Dataset | Description | Classes |
+|---------|-------------|---------|
+| **Indoor-Fire-Smoke** | Indoor fire and smoke images (perspective) | fire, smoke |
+| **Fisheye-Lens-Images** | Fisheye distorted fire images | fire |
+| **Indoor-Outdoor-Dataset** | Mixed indoor/outdoor fire scenes | fire, smoke |
+| **Building-Out** | Building fire scenarios | fire, smoke |
+
+### Download Links
+
+| Dataset | Link |
+|---------|------|
+| Indoor-Fire-Smoke | [Zenodo](https://zenodo.org/records/15826133/files/Indoor%20Fire%20Smoke.zip?download=1) |
+| Building-Out | [Zenodo](https://zenodo.org/records/15187630/files/Building_Out.zip?download=1) |
+
+Place downloaded datasets in the `datasets/` directory and rename if needed:
+
+```bash
+unzip "Indoor Fire Smoke.zip" -d datasets/
+mv "datasets/Indoor Fire Smoke" datasets/Indoor-Fire-Smoke
+```
+
+---
+
+## Camera Calibration
+
+The equidistant approximation works for most wide-angle IP cameras. For better accuracy, provide a calibration JSON.
+
+Generate a template:
 
 ```bash
 python scripts/rectconv_adapter.py \
@@ -492,10 +415,7 @@ python scripts/rectconv_adapter.py \
     --output cameras/my_camera.json
 ```
 
-Edit the output file and replace `k1` (and optionally `k2`–`k4`) with values
-from your calibration tool (OpenCV, MATLAB, Kalibr, etc.).
-
-The JSON format follows the RectConv WoodScape convention:
+Replace `k1` (and optionally `k2`-`k4`) with values from your calibration tool (OpenCV, MATLAB, Kalibr).
 
 ```json
 {
@@ -513,15 +433,23 @@ The JSON format follows the RectConv WoodScape convention:
 
 ---
 
+## Requirements
+
+- Python 3.8+
+- CUDA-capable GPU (recommended for training; CPU works for inference)
+- `ultralytics`, `opencv-python`, `torch`, `torchvision`, `streamlit`, `pillow`, `numpy`, `scipy`
+
+---
+
 ## Citation
 
-If you use this work, please also cite the RectConv paper:
+If you use this work, please cite the RectConv paper:
 
-```
+```bibtex
 @article{rectconv2024,
-  title  = {Adapting CNNs for Fisheye Cameras without Retraining},
-  author = {RoboticImaging lab},
-  year   = {2024},
-  url    = {https://arxiv.org/abs/2404.08187}
+  title   = {Adapting CNNs for Fisheye Cameras without Retraining},
+  author  = {RoboticImaging lab},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2404.08187}
 }
 ```
