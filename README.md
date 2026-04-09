@@ -268,7 +268,98 @@ All plots are in `training_results/rtdetr-l-rectconv_v1_2026-04-02/`:
 │       └── val/images/   & labels/
 │
 ├── gui/
-│   └── app.py                       # Streamlit web interface
+│   └── app.py                      # Streamlit web application
+├── .gitignore
+└── README.md
+```
+
+---
+
+## Requirements
+
+- Python 3.8+
+- CUDA-capable GPU (recommended for training)
+
+---
+
+## Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/medlemine-djeidjah/Indoor-Fire-Detection-Fisheye-Lens
+   cd Indoor-Fire-Detection-Fisheye-Lens
+   ```
+
+2. **Create virtual environment (recommended):**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Linux/Mac
+   # or
+   venv\Scripts\activate     # Windows
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install ultralytics opencv-python torch torchvision streamlit pillow numpy
+   ```
+
+---
+
+## Datasets
+
+### Available Datasets
+
+| Dataset | Description | Classes | Use Case |
+|---------|-------------|---------|----------|
+| **YOLOV12-DATASET** | Large fire/smoke dataset for YOLOv12 training | smoke, fire | Primary training |
+| **Indoor-Fire-Smoke** | Indoor fire and smoke images | fire, smoke | Indoor-specific training |
+| **Indoor-Outdoor-Dataset** | Mixed indoor/outdoor fire scenes | fire, smoke | Diverse training |
+| **Fisheye-Lens-Images** | Fisheye distorted images | - | Fisheye augmentation |
+| **Building-Out** | Building fire scenarios | fire, smoke | Building-specific training |
+
+### Download Links
+
+| Dataset | Link |
+|---------|------|
+| YOLOV12-DATASET | [Download](https://storage.googleapis.com/kaggle-data-sets/6556263/10592956/bundle/archive.zip?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20260126%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260126T082828Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=56ba11358946f2ac46fdba58e9e9a5f05b59c50aaa29e2f839edd3b8a1376e4155cfcbcf1e91ebb4c5a39bf8b94cac8eef13e383a29c0a9ac91c72ecdd2bef641a8d522ae7293cdf742a947e6f3200fe7609930cedb277d8c2d6ae1c776d70f2649c088e3c66679ed2db67cfdd7f85d6580bb8f5382d6ed1a649b85092b8bb76ffb4de2fe1c88f27fd5b37ba677c1d6ba2789e7db4e34c7535a7dabcbee34ea4678ad8f43a2121b4e560c5eaecc7c63687f4bcfea44211a5cb049100d8156ec15e529e1c77c2967f52765f909813cb6146017e0c07fc7b0e8973ae3d2d8d1108e2fef069530f515c96f4cb46d635d752ccf999540cd17566fd2b480b9ec7f4a2) |
+| Indoor-Fire-Smoke | [Download](https://zenodo.org/records/15826133/files/Indoor%20Fire%20Smoke.zip?download=1) |
+| Indoor-Outdoor-Dataset | [Download](https://storage.googleapis.com/kaggle-data-sets/3652173/6343158/bundle/archive.zip?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20260121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260121T185642Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=4492d0e7348969d532f495ee398adf07cd86f392d8b379e60577eb301ea763ce021345cf7dfb50e037ca4b74e01634b8fb5fb815ca7f1c54b5de405bd43e516841fbf0234c518df2f0fbd2b23482c463bd4f5bf1be0a867bd86fe73923790665e71351239b39ff952e550e8d073d1b5d40c3f23f5d98be0ed1872fd0d2eaa4eb42296366fff6c075fda71bd605ed5a78e07c2a13d57c04ee603bee52a1d73d7d8b6a9e3c95e6a181e5962e5b790ff463db16c0a1d3215c5b2625337436cfb001e126d0879c2511631b5ad578329af59c6d7953a33570127b1a90accddd12b33e466b237f1f4c2d81fa1d9c41a00f011140f7bee78306d27927000506d1be0f47) |
+| Fisheye-Lens-Images | [Download](https://drive.google.com/file/d/1yq2YrJCD3dhzghrJEZbnMklXvqwiUwil/view?usp=sharing) |
+| Building-Out | [Download](https://zenodo.org/records/15187630/files/Building_Out.zip?download=1) |
+
+### Dataset Placement
+
+All datasets must be placed in the `datasets/` directory. This directory is gitignored to prevent uploading large files to GitHub.
+
+**Steps:**
+1. Download the dataset ZIP file
+2. Extract it to the `datasets/` folder
+3. Rename the folder if necessary to match the expected name (no spaces)
+
+**Example:**
+```bash
+# After downloading Indoor Fire Smoke.zip
+unzip "Indoor Fire Smoke.zip" -d datasets/
+mv "datasets/Indoor Fire Smoke" datasets/Indoor-Fire-Smoke
+```
+
+### Expected Directory Structure
+
+After placing datasets, your `datasets/` folder should look like this:
+
+```
+datasets/
+├── Indoor-Fire-Smoke/
+│   ├── data.yaml              # Dataset configuration file
+│   ├── train/
+│   │   ├── images/            # Training images (.jpg, .png)
+│   │   └── labels/            # YOLO format labels (.txt)
+│   ├── valid/
+│   │   ├── images/
+│   │   └── labels/
+│   └── test/
+│       ├── images/
+│       └── labels/
 │
 ├── scripts/
 │   ├── train_rtdetr_rectconv.py     # Main ConvRect training script
