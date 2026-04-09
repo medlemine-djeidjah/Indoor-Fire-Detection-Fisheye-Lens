@@ -1,4 +1,4 @@
-import sys
+    import sys
 import os
 # Allow importing from scripts/ when running from the project root or gui/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
