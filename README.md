@@ -66,7 +66,7 @@ Indoor-Fire-Detection-Fisheye-Lens/
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/Indoor-Fire-Detection-Fisheye-Lens.git
+   git clone https://github.com/medlemine-djeidjah/Indoor-Fire-Detection-Fisheye-Lens
    cd Indoor-Fire-Detection-Fisheye-Lens
    ```
 
